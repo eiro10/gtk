@@ -13,6 +13,8 @@
 #include <hb.h>
 #include <hb-ot.h>
 #include <hb-ft.h>
+#include <freetype/ftmm.h>
+#include <freetype/ftsnames.h>
 
 static GtkWidget *label;
 static GtkWidget *settings;
@@ -24,6 +26,9 @@ static GtkWidget *numspacedefault;
 static GtkWidget *fractiondefault;
 static GtkWidget *stack;
 static GtkWidget *entry;
+static GtkWidget *variations_heading;
+static GtkWidget *variations_grid;
+static GtkWidget *instance_combo;
 
 #define num_features 40
 
@@ -404,10 +409,253 @@ update_features (void)
   g_object_unref (pango_font);
 }
 
+#define FixedToFloat(f) (((float)(f))/65536)
+
+static void
+adjustment_changed (GtkAdjustment *adjustment,
+                    GtkEntry      *entry)
+{
+  char *str;
+
+  str = g_strdup_printf ("%g", gtk_adjustment_get_value (adjustment));
+  gtk_entry_set_text (GTK_ENTRY (entry), str);
+  g_free (str);
+}
+
+static void
+entry_activated (GtkEntry *entry,
+                 GtkAdjustment *adjustment)
+{
+  gdouble value;
+  gchar *err = NULL;
+
+  value = g_strtod (gtk_entry_get_text (entry), &err);
+  if (err != NULL)
+    gtk_adjustment_set_value (adjustment, value);
+}
+
+typedef struct {
+  guint32 tag;
+  GtkAdjustment *adjustment;
+} Axis;
+
+static GHashTable *axes;
+
+static void unset_instance (GtkAdjustment *adjustment);
+
+static void
+add_axis (FT_Var_Axis *ax, int i)
+{
+  GtkWidget *label;
+  GtkAdjustment *adjustment;
+  GtkWidget *scale;
+  Axis *axis;
+
+  label = gtk_label_new (ax->name);
+  gtk_widget_set_halign (label, GTK_ALIGN_START);
+  gtk_widget_set_valign (label, GTK_ALIGN_BASELINE);
+  gtk_grid_attach (GTK_GRID (variations_grid), label, 0, i, 1, 1);
+  adjustment = gtk_adjustment_new ((double)FixedToFloat(ax->def),
+                                   (double)FixedToFloat(ax->minimum),
+                                   (double)FixedToFloat(ax->maximum),
+                                   1.0, 10.0, 0.0);
+  scale = gtk_scale_new (GTK_ORIENTATION_HORIZONTAL, adjustment);
+  gtk_scale_add_mark (GTK_SCALE (scale), (double)FixedToFloat(ax->def), GTK_POS_TOP, NULL);
+  gtk_widget_set_valign (scale, GTK_ALIGN_BASELINE);
+  gtk_widget_set_hexpand (scale, TRUE);
+  gtk_widget_set_size_request (scale, 100, -1);
+  gtk_scale_set_draw_value (GTK_SCALE (scale), FALSE);
+  gtk_grid_attach (GTK_GRID (variations_grid), scale, 1, i, 1, 1);
+  entry = gtk_entry_new ();
+  gtk_widget_set_valign (entry, GTK_ALIGN_BASELINE);
+  gtk_entry_set_width_chars (GTK_ENTRY (entry), 4);
+  gtk_grid_attach (GTK_GRID (variations_grid), entry, 2, i, 1, 1);
+
+  axis = g_new (Axis, 1);
+  axis->tag = ax->tag;
+  axis->adjustment = adjustment;
+  g_hash_table_insert (axes, &axis->tag, axis);
+
+  adjustment_changed (adjustment, GTK_ENTRY (entry));
+
+  g_signal_connect (adjustment, "value-changed", G_CALLBACK (adjustment_changed), entry);
+  g_signal_connect (adjustment, "value-changed", G_CALLBACK (unset_instance), NULL);
+  g_signal_connect (entry, "activate", G_CALLBACK (entry_activated), adjustment);
+}
+
+typedef struct {
+  char *name;
+  int n_axes;
+  guint32 *axes;
+  float   *coords;
+} Instance;
+
+static void
+free_instance (gpointer data)
+{
+  Instance *instance = data;
+
+  g_free (instance->name);
+  g_free (instance->axes);
+  g_free (instance->coords);
+  g_free (instance);
+}
+
+static GHashTable *instances;
+
+static void
+add_instance (FT_Face             ft_face,
+              FT_MM_Var          *ft_mm_var,
+              FT_Var_Named_Style *ns,
+              GtkWidget          *combo)
+{
+  FT_SfntName ft_name;
+  Instance *instance;
+  int i;
+
+  instance = g_new0 (Instance, 1);
+
+  if (FT_Get_Sfnt_Name (ft_face, ns->strid, &ft_name) == 0)
+    instance->name = g_strndup ((char *)ft_name.string, ft_name.string_len);
+  else
+    instance->name = g_strdup_printf ("%u", ns->strid);
+
+  g_hash_table_insert (instances, instance->name, instance);
+  gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (combo), instance->name);
+
+  instance->n_axes = ft_mm_var->num_axis;
+  instance->axes = g_new (guint32, ft_mm_var->num_axis);
+  instance->coords = g_new (float, ft_mm_var->num_axis);
+
+  for (i = 0; i < ft_mm_var->num_axis; i++)
+    {
+      instance->axes[i] = ft_mm_var->axis[i].tag;
+      instance->coords[i] = FixedToFloat(ns->coords[i]);
+    }
+}
+
+static void
+unset_instance (GtkAdjustment *adjustment)
+{
+  if (instance_combo)
+    gtk_combo_box_set_active (GTK_COMBO_BOX (instance_combo), 0);
+}
+
+static void
+instance_changed (GtkComboBox *combo)
+{
+  char *text;
+  Instance *instance;
+  int i;
+
+  text = gtk_combo_box_text_get_active_text (GTK_COMBO_BOX_TEXT (combo));
+  if (text[0] == '\0')
+    goto out;
+
+  instance = g_hash_table_lookup (instances, text);
+  if (!instance)
+    {
+      g_print ("did not find instance %s\n", text);
+      goto out;
+    }
+
+  for (i = 0; i < instance->n_axes; i++)
+    {
+      Axis *axis;
+      guint32 tag;
+      gdouble value;
+
+      tag = instance->axes[i];
+      value = instance->coords[i];
+
+      axis = g_hash_table_lookup (axes, &tag);
+      if (axis)
+        {
+          g_signal_handlers_block_by_func (axis->adjustment, unset_instance, NULL);
+          gtk_adjustment_set_value (axis->adjustment, value);
+          g_signal_handlers_unblock_by_func (axis->adjustment, unset_instance, NULL);
+        }
+    }
+
+out:
+  g_free (text);
+}
+
+static void
+update_font_variations (void)
+{
+  GtkWidget *child, *next;
+  PangoFont *pango_font;
+  FT_Face ft_face;
+  FT_MM_Var *ft_mm_var;
+  FT_Error ret;
+
+  child = gtk_widget_get_first_child (variations_grid);
+  while (child != NULL)
+    {
+      next = gtk_widget_get_next_sibling (child);
+      gtk_widget_destroy (child);
+      child = next;
+    }
+
+  instance_combo = NULL;
+
+  g_hash_table_remove_all (axes);
+  g_hash_table_remove_all (instances);
+
+  pango_font = get_pango_font ();
+  ft_face = pango_fc_font_lock_face (PANGO_FC_FONT (pango_font)),
+
+  ret = FT_Get_MM_Var (ft_face, &ft_mm_var);
+  if (ret == 0)
+    {
+      unsigned int i;
+
+      gtk_widget_show (variations_heading);
+
+      if (ft_mm_var->num_namedstyles > 0)
+        {
+           GtkWidget *label;
+           GtkWidget *combo;
+
+           label = gtk_label_new ("Instance");
+           gtk_label_set_xalign (GTK_LABEL (label), 0);
+           gtk_widget_set_halign (label, GTK_ALIGN_START);
+           gtk_widget_set_valign (label, GTK_ALIGN_BASELINE);
+           gtk_grid_attach (GTK_GRID (variations_grid), label, 0, -1, 2, 1);
+
+           combo = gtk_combo_box_text_new ();
+           gtk_widget_set_valign (combo, GTK_ALIGN_BASELINE);
+           g_signal_connect (combo, "changed", G_CALLBACK (instance_changed), NULL);
+           gtk_grid_attach (GTK_GRID (variations_grid), combo, 1, -1, 2, 1);
+
+           gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (combo), "");
+
+           for (i = 0; i < ft_mm_var->num_namedstyles; i++)
+             add_instance (ft_face, ft_mm_var, &ft_mm_var->namedstyle[i], combo);
+
+           instance_combo = combo;
+        }
+
+      for (i = 0; i < ft_mm_var->num_axis; i++)
+        add_axis (&ft_mm_var->axis[i], i);
+
+      free (ft_mm_var);
+    }
+  else
+    {
+      gtk_widget_hide (variations_heading);
+    }
+
+  pango_fc_font_unlock_face (PANGO_FC_FONT (pango_font));
+  g_object_unref (pango_font);
+}
+
 static void
 font_changed (void)
 {
   update_script_combo ();
+  update_font_variations ();
 }
 
 static void
@@ -508,6 +756,13 @@ do_font_features (GtkWidget *do_widget)
           icon[i] = GTK_WIDGET (gtk_builder_get_object (builder, iname));
           g_free (iname);
         }
+
+      variations_heading = GTK_WIDGET (gtk_builder_get_object (builder, "variations_heading"));
+      variations_grid = GTK_WIDGET (gtk_builder_get_object (builder, "variations_grid"));
+      if (instances == NULL)
+        instances = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, free_instance);
+      if (axes == NULL)
+        axes = g_hash_table_new_full (g_int_hash, g_int_equal, NULL, g_free);
 
       font_changed ();
 

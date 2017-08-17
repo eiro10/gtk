@@ -54,8 +54,16 @@
                       </object>
                     </child>
                     <child>
+                      <object class="GtkLabel">
+                        <property name="label" translatable="yes">Script &amp; Language</property>
+                        <property name="xalign">0</property>
+                        <attributes>
+                          <attribute name="weight" value="bold"/>
+                        </attributes>
+                      </object>
+                    </child>
+                    <child>
                       <object class="GtkComboBox" id="script_lang">
-                        <property name="visible">1</property>
                         <property name="can_focus">1</property>
                         <signal name="changed" handler="script_changed" swapped="no"/>
                         <child>
@@ -64,6 +72,15 @@
                             <attribute name="text">0</attribute>
                           </attributes>
                         </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label" translatable="yes">Features</property>
+                        <property name="xalign">0</property>
+                        <attributes>
+                          <attribute name="weight" value="bold"/>
+                        </attributes>
                       </object>
                     </child>
                     <child>
@@ -1578,6 +1595,21 @@
                             <property name="label" translatable="yes">Alternative Stylistic Sets</property>
                           </object>
                         </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel" id="variations_heading">
+                        <property name="label" translatable="yes">Variations</property>
+                        <property name="xalign">0</property>
+                        <attributes>
+                          <attribute name="weight" value="bold"/>
+                        </attributes>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkGrid" id="variations_grid">
+                        <property name="column-spacing">6</property>
+                        <property name="row-spacing">6</property>
                       </object>
                     </child>
                   </object>
