@@ -53,6 +53,17 @@
       <entry name="tiled" value="1"/>
     </enum>
 
+    <enum name="edge_constraint">
+      <entry name="top_tiled" value="2"/>
+      <entry name="top_resizable" value="3"/>
+      <entry name="right_tiled" value="4"/>
+      <entry name="right_resizable" value="5"/>
+      <entry name="bottom_tiled" value="6"/>
+      <entry name="bottom_resizable" value="7"/>
+      <entry name="left_tiled" value="8"/>
+      <entry name="left_resizable" value="9"/>
+    </enum>
+
     <event name="configure">
       <arg name="states" type="array"/>
     </event>

@@ -2962,6 +2962,30 @@ gtk_surface_configure (void                *data,
         case GTK_SURFACE1_STATE_TILED:
           new_state |= GDK_WINDOW_STATE_TILED;
           break;
+        case GTK_SURFACE1_EDGE_CONSTRAINT_TOP_TILED:
+          new_state |= GDK_WINDOW_STATE_TOP_TILED;
+          break;
+        case GTK_SURFACE1_EDGE_CONSTRAINT_TOP_RESIZABLE:
+          new_state |= GDK_WINDOW_STATE_TOP_RESIZABLE;
+          break;
+        case GTK_SURFACE1_EDGE_CONSTRAINT_RIGHT_TILED:
+          new_state |= GDK_WINDOW_STATE_RIGHT_TILED;
+          break;
+        case GTK_SURFACE1_EDGE_CONSTRAINT_RIGHT_RESIZABLE:
+          new_state |= GDK_WINDOW_STATE_TOP_TILED;
+          break;
+        case GTK_SURFACE1_EDGE_CONSTRAINT_BOTTOM_TILED:
+          new_state |= GDK_WINDOW_STATE_BOTTOM_TILED;
+          break;
+        case GTK_SURFACE1_EDGE_CONSTRAINT_BOTTOM_RESIZABLE:
+          new_state |= GDK_WINDOW_STATE_BOTTOM_RESIZABLE;
+          break;
+        case GTK_SURFACE1_EDGE_CONSTRAINT_LEFT_TILED:
+          new_state |= GDK_WINDOW_STATE_LEFT_TILED;
+          break;
+        case GTK_SURFACE1_EDGE_CONSTRAINT_LEFT_RESIZABLE:
+          new_state |= GDK_WINDOW_STATE_LEFT_RESIZABLE;
+          break;
         default:
           /* Unknown state */
           break;
